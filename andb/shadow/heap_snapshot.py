@@ -18,6 +18,7 @@ from andb.utility import (
     TextShort, 
     TextLimit
 )
+from andb.fmt.sourcemap import SourceMaps
 import andb.py23 as py23
 
 testNames=None
@@ -533,6 +534,10 @@ class GraphHolder(object):
         elif v8.InstanceType.isJSObject(obj_type):
             o = v8.JSObject(obj)
             name = self.GetConstructorName(o)
+
+            # group "Object" named objects by hidden class.
+            if name == "Object":
+                name = "Object(0x%x)" % o.map
             return self.AddEntryObjectSize(heap_obj, HeapEntry.kObject, name)
 
         elif v8.InstanceType.isString(obj_type):
@@ -836,10 +841,11 @@ class ObjectParser(GraphHolder):
         self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "map", obj.map)
 
         # show Tagged Pointer in heapsnapshot 
-        #entry.SetNamedReference(HeapGraphEdge.kInternal, "0x%x" % obj, self.mem_entry_)
+        if cfg.cfgHeapSnapshotShowAddress == 2:
+            self.SetReferenceString(HeapGraphEdge.kInternal, entry, "address", "0x%x" % obj.address)
 
         # Extrace Location
-        #self.ExtractLocation(entry, obj)
+        self.ExtractLocation(entry, obj)
 
     def AddLocation(self, entry, script, line, col):
         l = SourceLocation(entry, script, line, col)
@@ -905,6 +911,17 @@ class ObjectParser(GraphHolder):
         assert child_entry is not None
        
         parent_entry.SetIndexedReference(self, typ, name_or_index, child_entry)
+
+    def SetReferenceString(self, typ, parent_entry, name, value):
+        assert isinstance(name, str)
+        
+        if isinstance(value, unicode):
+            value = value.encode('utf-8')
+        else:
+            assert isinstance(value, str)
+
+        dummy_entry = self._AddEntry(HeapEntry.kString, value, 0, 0)
+        parent_entry.SetNamedReference(self, typ, name, dummy_entry)
 
     def ExtractReferencesAccessorInfo(self, parent_entry, obj):
         o = v8.AccessorInfo(obj)
@@ -1059,7 +1076,6 @@ class ObjectParser(GraphHolder):
         o = v8.Script(obj.address)
         self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "source", v8.HeapObject(o.source))
         self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "name", v8.HeapObject(o.name))
-
         context_data = v8.HeapObject(o.context_data)
         if context_data.IsHeapObject():
             self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "context_data", context_data)
@@ -1067,6 +1083,13 @@ class ObjectParser(GraphHolder):
         line_ends = v8.HeapObject(o.line_ends)
         if line_ends.IsHeapObject():
             self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "line_ends", line_ends)
+
+        url = o.GetSourceUrl()
+        if url is not None:
+            self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "source_url", v8.HeapObject(url))
+        url = o.GetSourceMappingUrl() 
+        if url is not None:
+            self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "source_mapping_url", v8.HeapObject(url))
 
     def ExtractReferncesContext(self, entry, obj):
         context = v8.Context(obj.address)
@@ -1176,6 +1199,14 @@ class ObjectParser(GraphHolder):
         o = v8.JSGlobalProxy(obj.address)
         self.SetReferenceObject(HeapGraphEdge.kInternal, entry, "native_context", v8.HeapObject(o.native_context))
 
+    def ExtractReferencesNumber(self, entry, obj):
+        if obj.IsSmi():
+            name = "%d" % obj.ToInt() 
+        else:
+            # HeapNumber
+            assert Exception("not support")
+        SetReferenceNumber(self, entry, name)
+
     def ExtractReferences(self, entry, obj):
         #log.debug("ExtractReferences : 0x%x"% (obj.address))
 
@@ -1246,18 +1277,56 @@ class ObjectParser(GraphHolder):
         elif v8.InstanceType.isFixedArray(typ):
             self.ExtractReferencesFixedArray(entry, obj)
 
+    def ExtractLocationForJSFunction(self, entry, func):
+        shared_info = func.shared_function_info
+        script = shared_info.script
+        if script is None:
+            return
+
+        # TBD: stub for modules in ssr.
+        script_name = script.DebugName()
+        if script_name is None or not script_name.startswith('mod://'): 
+            return
+
+        # get original position info
+        start = shared_info.StartPosition()
+        if start is None:
+            return
+
+        position_info = script.GetPositionInfo(start)
+        if position_info is None:
+            return
+
+        script_id = int(script.id)
+        # TBD: location can't show in devtools
+        #self.AddLocation(entry, script_id, position_info.line, position_info.column)
+        self.SetReferenceString(HeapGraphEdge.kInternal, entry, "line_column", "%d,%d" %(position_info.line, position_info.column))
+
+        # deobfuscating by sourcemap
+        if cfg.cfgHeapSnapshotSourceMap:
+            url = script.GetSourceMappingUrl()
+            if url is not None:
+                # TBD: DEBUG TEST ONLY, DON'T COMMIT
+                # hard coded, ssr used an invalid source map, added 2line before and 2line after source.
+                d = SourceMaps.GetOriginalPositionFor(str(url), position_info.line-2, position_info.column) 
+                if d is not None:
+                    self.SetReferenceString(HeapGraphEdge.kInternal, entry, "sourceinfo", "%s:%d:%d:%s" %(d[0], d[1], d[2], d[3]))
+
     def ExtractLocation(self, entry, obj):
+        if not cfg.cfgHeapSnapshotShowPosition:
+            return
+
         if obj.IsJSFunction():
             js_fun = v8.JSFunction(obj.address) 
-            script = js_fun.shared_function_info.script
-            if script is None:
-                return
+            self.ExtractLocationForJSFunction(entry, js_fun)
 
-            script_id = int(script.id)
-            self.AddLocation(entry, script_id, 0, 0)
+        # TBD: JSGeneratorObject
 
-        # TBD: JSObject Constructor
-
+        elif obj.IsJSObject():
+            js_obj = v8.JSObject(obj.address)
+            constructor, name = js_obj.GetConstructorTuple()
+            if constructor is not None:
+                self.ExtractLocationForJSFunction(entry, constructor)
 
 class HeapSnapshot(GraphHolder):
 
@@ -1511,12 +1580,16 @@ class HeapSnapshot(GraphHolder):
             if v8.InstanceType.isFreeSpace(obj.instance_type) and \
                 cfg.cfgHeapSnapshotShowFreeSapce == 0:
                 continue
-
+           
             try:
                 parser.ExtractObject(obj)
             except Exception as e:
                 log.error("Parse <0x%x> failed: %s" % (obj, e))
                 failed.append(obj)
+
+                if cfg.cfgObjectDecodeFailedAction == 0:
+                    # re-raising the exception
+                    raise 
 
         self.Merge(parser)
         return (cnt, failed,)
@@ -1586,6 +1659,11 @@ class HeapSnapshot(GraphHolder):
                 n.to_entry_ = last_entry
             self.edges_.append(n)
 
+        # locations
+        for n in parser.locations_:
+            print(n._entry, n._id, n._line, n._col)
+            self.locations_.append(n)
+
     def IterateROHeapObjects(self):
         cnt = 0
         ro_heap = self._isolate.ReadOnlyHeap()
@@ -1605,7 +1683,7 @@ class HeapSnapshot(GraphHolder):
     def IterateHeapObjects(self):
         from time import time
         heap = self.heap()
-        spaces = v8.AllocationSpace.OnlyOldSpaces()
+        spaces = [v8.AllocationSpace.OLD_SPACE]  #v8.AllocationSpace.OnlyOldSpaces()
         total = 0
         failed = []
         
@@ -1760,7 +1838,7 @@ class HeapSnapshot(GraphHolder):
                     n.id_,
                     n.self_size_,
                     n.children_count_,
-                    n.mem_addr_,
+                    n.mem_addr_ if cfg.cfgHeapSnapshotShowAddress == 1 else 0,
                     ]
         return ay 
 
@@ -1784,7 +1862,7 @@ class HeapSnapshot(GraphHolder):
     def SerializeLocations(self):
         ay = []
         for n in self.locations_:
-            ay += [ n._entry.index_,
+            ay += [ int(n._entry.index_) * 7,
                     int(n._id),
                     int(n._line),
                     int(n._col)]

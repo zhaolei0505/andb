@@ -292,6 +292,13 @@ class ScopeInfo(FixedArray):
     def GetContextLocalName(self, index):
         return self.context_local_names(index)
 
+    def StartPosition(self):
+        info = PositionInfo(self.position_info)
+        return info.start
+
+    def EndPosition(self):
+        info = PositionInfo(self.position_info)
+        return info.end
 
 """ tail imports
 """

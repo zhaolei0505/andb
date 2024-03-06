@@ -452,6 +452,12 @@ class HeapObject(Object, Value):
         o = Oddball(self.address) 
         return o.IsTheHole()
 
+    def IsScopeInfo(self):
+        return InstanceType.isScopeInfo(self.instance_type)
+
+    def IsUncompiledData(self):
+        return InstanceType.isUncompiledData(self.instance_type)
+
     def IsMap(self):
         # Map Object has instance_type property, get from map's instance_type
         return InstanceType.isMap(self.map.instance_type)
@@ -2168,6 +2174,10 @@ class Script(HeapObject):
     """ V8 Script Object """
 
     _typeName = 'v8::internal::Script'
+
+    # TBD: script -> line_ends caches
+    _cache_line_ends = {}
+
     class ScriptFlags(BitField):
 
         @classmethod
@@ -2206,6 +2216,67 @@ class Script(HeapObject):
         if name.IsString():
             return name.ToString() 
         return ""
+
+    class PositionInfo:
+        line = None
+        column = None
+
+    def GenLineEnds(self,start):
+        # check in cache
+        sid = self.id.ToInt()
+        if sid in self._cache_line_ends:
+            return self._cache_line_ends[sid]
+
+        x = String(self.source)
+        if not x.IsString():
+            return None
+
+        line_ends = []
+        y = x.to_string()
+        for ln in y.splitlines():
+            line_ends.append(len(ln))
+        #raw_print(start, y[start:start+16])
+        
+        # save to cache
+        self._cache_line_ends[sid] = line_ends
+        return line_ends
+
+    def GetPositionInfo(self, start):
+        # TBD: only slow source search implementation
+        line_ends = self.GenLineEnds(start)
+        if line_ends is None:
+            return None
+
+        x = self.PositionInfo()
+        x.line = 0
+        x.column = 0
+
+        # TBD: binary tree search
+        pos = start
+        line = 0
+        for i in range(len(line_ends)):
+            s = line_ends[i]
+            if pos < s: 
+                break
+            pos -= s
+            line = i
+        
+        x.line = line + 1 
+        x.column = pos 
+
+        return x
+
+    def GetSourceUrl(self):
+        x = String(self.source_url)
+        if x.IsString():
+            return x
+        return None
+        
+    def GetSourceMappingUrl(self):
+        x = String(self.source_mapping_url)
+        if x.IsString():
+            return x
+        return None
 
 class ContextSlot(Enum):
     _typeName = 'v8::internal::Context::Field'
@@ -3082,6 +3153,20 @@ class PreparseData(HeapObject):
 class UncompiledData(HeapObject):
     _typeName = 'v8::internal::UncompiledData'
 
+    @classmethod
+    def __autoLayout(cls):
+        return {"layout":[
+            {"name": "inferred_name", "type": String},
+            {"name": "start_position", "type": int},
+            {"name": "end_position", "type": int}
+        ]}
+
+    def StartPosition(self):
+        return self.start_position
+    
+    def EndPosition(self):
+        return self.end_position
+
 
 class UncompiledDataWithoutPreparseData(UncompiledData):
     _typeName = 'v8::internal::UncompiledDataWithoutPreparseData'
@@ -3190,7 +3275,7 @@ class SharedFunctionInfo(HeapObject):
             return o
         return None 
 
-    @CachedProperty
+    @property
     def uncompiled_data(self):
         return UncompiledData(self.function_data)
 
@@ -3256,7 +3341,24 @@ class SharedFunctionInfo(HeapObject):
         if cnt == 65535:
             cnt = 0
         return cnt
-    
+   
+    def StartPosition(self):
+        # get from scopeinfo
+        v = HeapObject(self.name_or_scope_info)
+        if not v.IsSmi() and v.IsScopeInfo():
+            scope = ScopeInfo(v)
+            if scope.has_position_info:
+                return scope.StartPosition()
+
+        # get from uncompileddata
+        v = self.uncompiled_data
+        if v.IsUncompiledData():
+            uncompiled_data = UncompiledData(v)
+            return uncompiled_data.StartPosition()
+
+        # no source position
+        return None
+
     def DebugPrint2(self):
         print(" - function_data :", Object.SBrief(self.function_data))
         print(" - name:", Object.SBrief(self.name_or_scope_info))

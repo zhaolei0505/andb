@@ -30,7 +30,7 @@ class Config:
         0: raise exception, and stop the command. 
         1: drop the page, but continue next page. 
     """
-    cfgObjectDecodeFailedAction = 1 
+    cfgObjectDecodeFailedAction = 0 
 
     """ control the output leves
         DEBUG >=10,
@@ -50,6 +50,24 @@ class Config:
     """ contain FreeSpace object in heapsnapshot.
     """
     cfgHeapSnapshotShowFreeSapce = 0
+
+    """ contain Address in heapsnapshot.
+        0: no address info write to heapsnapshot.
+        1: address write to node array (grep only) 
+        2: address in edge (show in devtools)
+    """
+    cfgHeapSnapshotShowAddress = 2 
+
+    """ contain Postion infomation in heapsnapshot.
+        0: no position info 
+        1: position info in locations array
+        2: position info in edge (show in devtools)
+    """
+    cfgHeapSnapshotShowPosition = 2 
+
+    """ load source map
+    """
+    cfgHeapSnapshotSourceMap = 1
 
     @classmethod
     def Show(cls, Key=None):

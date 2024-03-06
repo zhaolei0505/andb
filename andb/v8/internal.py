@@ -22,6 +22,12 @@ log.verbose("PointerSize: %d " % dbg.PointerSize)
 assert dbg.PointerSize == 8
 
 class Version:
+    """
+        node-v12 : v8-v7.8.279.23
+        node-v14 : v8-v8.4.371.23 
+        node-v16 : v8-v9.4.146.26
+        node-v18 : v8-v10.2.154.26
+    """
     major = dbg.Target.LoadRaw("'v8::internal::Version'::major_")
     minor = dbg.Target.LoadRaw("'v8::internal::Version'::minor_")
     patch = dbg.Target.LoadRaw("'v8::internal::Version'::patch_")

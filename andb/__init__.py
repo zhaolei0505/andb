@@ -34,6 +34,10 @@ def Load():
     cli.CommandPrefix.RegisterAll()
     cli.Command.RegisterAll()
 
+    # load sourcemap 
+    from fmt import sourcemap
+    sourcemap.SourceMaps.Load()
+
     t2 = time()
     print("andb loaded, cost %0.3f seconds." % (t2 - t1))
 

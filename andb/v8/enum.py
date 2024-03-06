@@ -419,6 +419,15 @@ class InstanceType(Enum):
     def isTransitionArray(cls, num):
         return cls.isType("TRANSITION_ARRAY_TYPE", num)
 
+    @classmethod
+    def isUncompiledData(cls, num):
+        # from node-v14
+        if Version.major >= 8:
+            return cls.inRange("FIRST_UNCOMPILED_DATA_TYPE", "LAST_UNCOMPILED_DATA_TYPE", num)
+
+        # support node-v12 
+        return cls.isType("UNCOMPILED_DATA_WITHOUT_PREPARSE_DATA_TYPE", num) or cls.isType("UNCOMPILED_DATA_WITH_PREPARSE_DATA_TYPE", num)
+
     """ template info
     """
     @classmethod

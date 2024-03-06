@@ -251,6 +251,12 @@ class ScopeInfo(HeapObject):
     def Size(self):
         return self.AllocateSize()
 
+    def StartPosition(self):
+        return self.position_info.start.ToInt()
+
+    def EndPosition(self):
+        return self.position_info.end.ToInt()
+
     def DebugPrint2(self):
         print("[ScopeInfo]")
         print(" - parameters: %d" % self.parameter_count)
