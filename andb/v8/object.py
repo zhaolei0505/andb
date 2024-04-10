@@ -465,6 +465,12 @@ class HeapObject(Object, Value):
     def IsAccessorPair(self):
         return InstanceType.isAccessorPair(self.map.instance_type)
 
+    def IsSharedFunctionInfo(self):
+        return InstanceType.isSharedFunctionInfo(self.map.instance_type)
+    
+    def IsFeedbackVector(self):
+        return InstanceType.isFeedbackVector(self.map.instance_type)
+
     @CachedProperty
     def has_fast_properties(self):
         """ return true if may have fast properties """
@@ -544,6 +550,15 @@ class HeapObject(Object, Value):
         elif InstanceType.isFixedArray(self.instance_type):
             o = FixedArray(self)
             mid = "[%d]" % o.length
+
+        elif self.IsFeedbackVector():
+            o = FeedbackVector(self)
+            mid = "%d/%s" % ( o.GetInvocationCount(), o.FunctionNameStr() )
+
+        elif self.IsFeedbackCell:
+            o = FeedbackCell(self)
+            mid = o.FunctionNameStr()
+
 
         tag = self.StrongTag()
 
@@ -2660,6 +2675,35 @@ class FeedbackVector(HeapObject):
     def Size(self):
         return self.SizeFor(self.length)
 
+    def GetInvocationCount(self):
+        return self.invocation_count
+
+    def FunctionNameStr(self):
+        shared_info = SharedFunctionInfo(self.shared_function_info)
+        if not shared_info.IsSharedFunctionInfo():
+            return ""
+        return shared_info.NameStr()
+
+
+class FeedbackCell(HeapObject):
+
+    _typeName = 'v8::internal::FeedbackCell'
+
+    @classmethod
+    def __autoLayout(cls):
+        return {
+            "layout": [
+                { "name":"value", "type":Object },
+                { "name":"interrupt_budget", "type":int },
+        ]}
+
+    def FunctionNameStr(self):
+        vector = FeedbackVector(self.value)
+        if not vector.IsFeedbackVector():
+            return ""
+        return vector.FunctionNameStr()
+
+
 class FieldType(Object):
     _typeName = 'v8::internal::FieldType'
 
@@ -4024,6 +4068,7 @@ class ObjectMap:
                 {'name': 'PROMISE_FULFILL_REACTION_JOB_TASK_TYPE', 'type': PromiseFulfillReactionJobTask},
                 {'name': 'ACCESSOR_INFO_TYPE', 'type': AccessorInfo},
                 {'name': 'ACCESSOR_PAIR_TYPE', 'type': AccessorPair},
+                {'name': 'FEEDBACK_CELL_TYPE', 'type': FeedbackCell},
 
                 # Inner  
                 {'name': 'SHARED_FUNCTION_INFO_TYPE', 'type': SharedFunctionInfo},
