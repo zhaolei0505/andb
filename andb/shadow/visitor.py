@@ -80,6 +80,7 @@ class IsolateGuesser:
         regions = dbg.Target.GetMemoryRegions().GetRegions()
         for m in regions:
             if m.size == 256*1024:
+                print("0x%x %d" % (m.start_address, m.size))
                 try:
                     iso = self.CheckMemoryChunk(m.start_address)
                 except Exception as e:
@@ -101,7 +102,7 @@ class IsolateGuesser:
                 try:
                     iso = self.CheckMemoryChunk(m.start_address)
                 except Exception as e:
-                    #print("0x%x %s" % (m.start_address, e))
+                    print("0x%x %s" % (m.start_address, e))
                     iso = None
                 if iso is None:
                     continue

@@ -76,9 +76,10 @@ parser.add_argument('--args', nargs=argparse.REMAINDER, help='debugger options')
 parser.add_argument('binary', nargs="?", type=str, help='node or shinki binaray')
 parser.add_argument('-z', '--tsr', action='store_true', help='Generate Technical Support Report.')
 parser.add_argument('--sysroot', action='store_true', help='Makeup sysroot for corefile.')
+parser.add_argument('-i', '--live', action='store_true', help='live debug.')
 
 args, dbg_opts = parser.parse_known_args()
-
+print(dbg_opts)
 #if not andb_dir in sys.path:
 #    sys.path.insert(0, andb_dir)
 
@@ -131,6 +132,18 @@ if args.core:
 
         if 'bin' in info:
             binary = info['bin']
+
+
+if args.live:
+    from andb.loader import CorefileAuxiliaryDownloader
+    corefileAuxiliaryDownloader = CorefileAuxiliaryDownloader('x86_64')
+    if args.tag and len(args.tag) > 0:
+        info = corefileAuxiliaryDownloader.FetchByTag(args.tag[0])
+
+    if binary is None:
+        binary = info['bin']
+    typfile = info['typ']
+    os.environ['ANDB_TYP'] = typfile 
 
 def IndexProcess(size):
     loader = GetLoader(andb_dir)
@@ -265,6 +278,7 @@ if __name__ == '__main__':
 
     if binary is None and \
         args.core is None and \
+        args.live is None and \
         args.pid is None:
         exit(0)
 

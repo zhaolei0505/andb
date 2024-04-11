@@ -35,7 +35,7 @@ def Load():
     cli.Command.RegisterAll()
 
     # load sourcemap 
-    from fmt import sourcemap
+    from .fmt import sourcemap
     sourcemap.SourceMaps.Load()
 
     t2 = time()

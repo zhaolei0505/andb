@@ -552,6 +552,7 @@ class MemoryRegionInfo(intf.MemoryRegionInfo):
 
 class MemoryRegions(intf.MemoryRegions):
     _I_regions = None
+    _is_live = None
 
     """
         Sections Flags,
@@ -609,16 +610,68 @@ class MemoryRegions(intf.MemoryRegions):
     def LoadFromProc(cls):
         """ for live process, we couldn't get memory maps from sections, 
             we need read from proc filesystem. 
-
-            TBD: support attached process. 
         """
-        pass
+        s = re.compile(
+            r'^(?P<start>[0-9A-Fa-f]+)-(?P<end>[0-9A-Fa-f]+) '
+            r'(?P<perms>[rwxp-]{4}) '
+            r'(?P<offset>[0-9A-Fa-f]+) '
+            r'(?P<dev>\w+:\w+) '
+            r'(?P<inode>\d+)\s+'
+            r'(?:\s*(?P<pathname>.*))?$'
+        )
+
+        pid = gdb.selected_inferior().pid
+        if pid == 0: 
+            return None
+
+        f = open('/proc/%d/maps'%pid, 'r')
+        for l in f.readlines():
+            m = s.match(l)
+            if m is None:
+                continue
+
+            t = m.groupdict()
+
+            v = 0 
+            for i in t['perms']:
+                if i == 'r': v |= MemoryRegionInfo.READ
+                if i == 'w': v |= MemoryRegionInfo.WRITE
+                if i == 'x': v |= MemoryRegionInfo.EXECUTE
+
+
+            pyo = MemoryRegionInfo()
+            pyo._I_mode = v 
+            #pyo._I_id = int(m.group(1))
+            pyo._I_start_address = int(t['start'], 16)
+            pyo._I_end_address = int(t['end'], 16)
+            pyo._I_name = t['pathname']
+
+            # add to _I_regions
+            cls._I_regions.append(pyo)
+        
+        f.close()
+
+
+    @classmethod
+    def check_target_live(cls):
+        if cls._is_live is not None:
+            return cls._is_live
+        v = gdb.execute('info target', to_string = True)
+        cls._is_live =  'Local exec file:' in v
+        return cls._is_live
 
     @classmethod
     def Load(cls):
-        if cls._I_regions is None:
+        # for live process, return /proc info, cache is disabled.
+        if cls.check_target_live():
+            cls._I_regions = []
+            cls.LoadFromProc()
+
+        # for corefile, cache the maps
+        elif cls._I_regions is None:
             cls._I_regions = []
             cls.LoadFromSection()
+
         return cls._I_regions
 
     @staticmethod
